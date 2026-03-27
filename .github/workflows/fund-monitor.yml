@@ -1,0 +1,42 @@
+name: Fund Monitor
+
+on:
+  schedule:
+    - cron: "50 6 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      APP_TIMEZONE: Asia/Shanghai
+      SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+      SENDER_PASS: ${{ secrets.SENDER_PASS }}
+      RECEIVER_GROUP_A: 542335825@qq.com
+      RECEIVER_GROUP_B: 3217542796@qq.com
+      SMTP_SERVER: smtp.qq.com
+      SMTP_PORT: "465"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run fund monitor
+        run: python fund_monitor.py
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fund-monitor-log
+          path: fund_monitor.log
+          if-no-files-found: ignore
