@@ -1,5 +1,7 @@
 name: Fund Monitor
 
+# GitHub Actions workflow for the finance email job.
+
 on:
   schedule:
     - cron: "50 6 * * 1-5"
