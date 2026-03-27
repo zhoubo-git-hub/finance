@@ -17,6 +17,7 @@ jobs:
       SENDER_PASS: ${{ secrets.SENDER_PASS }}
       RECEIVER_GROUP_A: 542335825@qq.com
       RECEIVER_GROUP_B: 3217542796@qq.com
+      FAILURE_NOTIFY_EMAIL: 3217542796@qq.com
       SMTP_SERVER: smtp.qq.com
       SMTP_PORT: "465"
     steps:
@@ -42,3 +43,45 @@ jobs:
           name: fund-monitor-log
           path: fund_monitor.log
           if-no-files-found: ignore
+
+      - name: Send failure notification
+        if: failure()
+        shell: python
+        run: |
+          import os
+          import smtplib
+          from email.header import Header
+          from email.mime.text import MIMEText
+
+          sender = os.environ["SENDER_EMAIL"]
+          password = os.environ["SENDER_PASS"]
+          receiver = os.environ["FAILURE_NOTIFY_EMAIL"]
+          server_host = os.environ["SMTP_SERVER"]
+          server_port = int(os.environ["SMTP_PORT"])
+          run_id = os.environ["GITHUB_RUN_ID"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          job_url = f"https://github.com/{repo}/actions/runs/{run_id}"
+
+          try:
+              with open("fund_monitor.log", "r", encoding="utf-8-sig") as file:
+                  log_tail = file.read()[-4000:]
+          except FileNotFoundError:
+              log_tail = "fund_monitor.log not found."
+
+          body = (
+              "GitHub Actions fund monitor failed.\n\n"
+              f"Repository: {repo}\n"
+              f"Run URL: {job_url}\n\n"
+              "Recent log:\n"
+              f"{log_tail}"
+          )
+
+          msg = MIMEText(body, "plain", "utf-8")
+          msg["From"] = f"{Header('基金助手', 'utf-8').encode()} <{sender}>"
+          msg["To"] = f"{Header('通知接收人', 'utf-8').encode()} <{receiver}>"
+          msg["Subject"] = Header("Fund Monitor GitHub Actions Failure", "utf-8")
+
+          server = smtplib.SMTP_SSL(server_host, server_port)
+          server.login(sender, password)
+          server.sendmail(sender, [receiver], msg.as_string())
+          server.quit()
