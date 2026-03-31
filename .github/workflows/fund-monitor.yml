@@ -6,6 +6,9 @@ on:
   schedule:
     - cron: "51 6 * * 1-5"
   workflow_dispatch:
+  repository_dispatch:
+    types:
+      - fund-monitor-trigger
 
 jobs:
   send-report:
