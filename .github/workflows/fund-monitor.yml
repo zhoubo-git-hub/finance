@@ -4,6 +4,9 @@ name: Fund Monitor
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - codex/email-test-20260508
   repository_dispatch:
     types:
       - fund-monitor-trigger
