@@ -45,6 +45,7 @@ ALL_FUND_CODES = [
 ]
 GROUP_A_CODES = ["012553", "020274", "014415", "016185"]
 GROUP_B_CODES = [code for code in ALL_FUND_CODES if code not in GROUP_A_CODES or code == "016185"]
+EXCHANGE_ETF_CODES = {"513650", "513870"}
 
 NASDAQ_SYMBOL = "IXIC"
 NASDAQ_ENDPOINTS = [
@@ -137,6 +138,9 @@ def is_trading_day(check_date):
 
 
 def get_fund_data(code):
+    if code in EXCHANGE_ETF_CODES:
+        return get_exchange_etf_data(code)
+
     url = f"http://fundgz.1234567.com.cn/js/{code}.js"
     headers = {"User-Agent": USER_AGENT}
     try:
@@ -147,6 +151,44 @@ def get_fund_data(code):
             return json.loads(match.group(1))
     except Exception as exc:
         log_message(f"Failed to fetch fund {code}: {exc}")
+    return None
+
+
+def get_exchange_etf_data(code):
+    url = f"https://hq.sinajs.cn/list=sh{code}"
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Referer": "https://finance.sina.com.cn",
+    }
+    try:
+        response = request_get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        match = re.search(r'="(.*)"', response.text)
+        if not match:
+            return None
+
+        parts = match.group(1).split(",")
+        if len(parts) < 32:
+            return None
+
+        previous_close = float(parts[2])
+        current_price = float(parts[3])
+        change_percent = (
+            (current_price - previous_close) / previous_close * 100
+            if previous_close
+            else 0
+        )
+        return {
+            "fundcode": code,
+            "name": parts[0],
+            "jzrq": parts[30],
+            "dwjz": f"{previous_close:.4f}",
+            "gsz": f"{current_price:.4f}",
+            "gszzl": f"{change_percent:.2f}",
+            "gztime": f"{parts[30]} {parts[31]}",
+        }
+    except Exception as exc:
+        log_message(f"Failed to fetch exchange ETF {code}: {exc}")
     return None
 
 
