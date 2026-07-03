@@ -7,9 +7,6 @@ on:
     # 06:50 UTC = 14:50 Asia/Shanghai
     - cron: "50 6 * * 1-5"
   workflow_dispatch:
-  repository_dispatch:
-    types:
-      - fund-monitor-trigger
 
 jobs:
   send-report:
