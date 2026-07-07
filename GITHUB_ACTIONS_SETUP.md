@@ -10,7 +10,7 @@ This project can run without the local Windows scheduler by using GitHub Actions
   - Reads mail credentials from environment variables.
 - `.github/workflows/fund-monitor.yml`
   - Runs at `14:52` on weekdays in China time.
-  - Uses only the weekday scheduled trigger.
+  - Keeps the weekday scheduled trigger plus manual `workflow_dispatch` for testing.
 
 ## Required GitHub secrets
 
