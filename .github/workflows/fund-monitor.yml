@@ -4,9 +4,8 @@ name: Fund Monitor
 
 on:
   schedule:
-    # 06:50 UTC = 14:50 Asia/Shanghai
-    - cron: "50 6 * * 1-5"
-  workflow_dispatch:
+    # 06:52 UTC = 14:52 Asia/Shanghai
+    - cron: "52 6 * * 1-5"
 
 jobs:
   send-report:
