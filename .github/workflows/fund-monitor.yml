@@ -3,9 +3,6 @@ name: Fund Monitor
 # GitHub Actions workflow for the finance email job.
 
 on:
-  schedule:
-    # 06:52 UTC = 14:52 Asia/Shanghai
-    - cron: "52 6 * * 1-5"
   workflow_dispatch:
 
 jobs:
