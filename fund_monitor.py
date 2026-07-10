@@ -243,9 +243,26 @@ def get_nasdaq_data():
     return None
 
 
+def parse_change_percent(value):
+    try:
+        return float(str(value).strip().rstrip("%"))
+    except Exception:
+        return None
+
+
+def sort_funds_by_change(data_list):
+    def sort_key(item):
+        change = parse_change_percent(item.get("gszzl"))
+        if change is None:
+            return (1, 0.0)
+        return (0, -change)
+
+    return sorted(data_list, key=sort_key)
+
+
 def generate_fund_report(data_list, title):
     lines = [f"{title} ({now_local().strftime('%Y-%m-%d %H:%M:%S')})", "=" * 40]
-    for data in data_list:
+    for data in sort_funds_by_change(data_list):
         lines.append(f"【{data['name']} ({data['fundcode']})】")
         lines.append(f"当前估值: {data['gsz']} (涨跌幅: {data['gszzl']}%)")
         lines.append(f"更新时间: {data['gztime']}")
