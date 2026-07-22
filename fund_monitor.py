@@ -1,4 +1,3 @@
-import json
 import os
 import re
 import smtplib
@@ -46,6 +45,23 @@ ALL_FUND_CODES = [
 GROUP_A_CODES = ["012553", "020274", "014415", "016185"]
 GROUP_B_CODES = [code for code in ALL_FUND_CODES if code not in GROUP_A_CODES or code == "016185"]
 EXCHANGE_ETF_CODES = {"513650", "513870"}
+PROXY_ESTIMATE_CONFIG = {
+    "016452": {
+        "name": "南方纳斯达克100指数发起(QDII)A",
+        "symbol": "gb_ndx",
+        "label": "纳斯达克100指数",
+    },
+    "163813": {
+        "name": "中银全球策略(QDII-FOF)A",
+        "symbol": "gb_ixic",
+        "label": "纳斯达克综合指数",
+    },
+    "003547": {
+        "name": "鹏华丰禄债券",
+        "symbol": "sh000012",
+        "label": "上证国债指数",
+    },
+}
 
 NASDAQ_SYMBOL = "IXIC"
 NASDAQ_ENDPOINTS = [
@@ -141,17 +157,145 @@ def get_fund_data(code):
     if code in EXCHANGE_ETF_CODES:
         return get_exchange_etf_data(code)
 
-    url = f"http://fundgz.1234567.com.cn/js/{code}.js"
-    headers = {"User-Agent": USER_AGENT}
+    data = get_sina_fund_estimate(code)
+    if data:
+        return data
+
+    if code in PROXY_ESTIMATE_CONFIG:
+        return get_proxy_fund_estimate(code)
+
+    log_message(f"No real-time estimate available for fund {code}.")
+    return None
+
+
+def get_sina_fund_estimate(code):
+    url = f"https://hq.sinajs.cn/list=fu_{code}"
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Referer": "https://finance.sina.com.cn",
+    }
     try:
         response = request_get(url, headers=headers, timeout=10)
         response.raise_for_status()
-        match = re.search(r"jsonpgz\((.*)\);", response.text)
-        if match:
-            return json.loads(match.group(1))
+        response.encoding = "gbk"
+        match = re.search(r'="(.*)"', response.text)
+        if not match or not match.group(1):
+            return None
+
+        parts = match.group(1).split(",")
+        if len(parts) < 10 or not parts[8] or not parts[9]:
+            log_message(f"Malformed Sina estimate for fund {code}.")
+            return None
+
+        float(parts[8])
+        float(parts[9])
+        return {
+            "fundcode": code,
+            "name": parts[0],
+            "jzrq": parts[7],
+            "dwjz": parts[3],
+            "gsz": parts[8],
+            "gszzl": parts[9],
+            "gztime": f"{parts[7]} {parts[1]}",
+        }
     except Exception as exc:
-        log_message(f"Failed to fetch fund {code}: {exc}")
+        log_message(f"Failed to fetch Sina estimate for fund {code}: {exc}")
     return None
+
+
+def get_latest_official_nav(code):
+    url = "https://api.fund.eastmoney.com/f10/lsjz"
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Referer": "https://fundf10.eastmoney.com/",
+    }
+    params = {
+        "fundCode": code,
+        "pageIndex": 1,
+        "pageSize": 1,
+        "startDate": "",
+        "endDate": "",
+    }
+    try:
+        response = request_get(url, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
+        records = response.json().get("Data", {}).get("LSJZList", [])
+        if not records:
+            return None
+
+        record = records[0]
+        return {
+            "date": record["FSRQ"],
+            "nav": float(record["DWJZ"]),
+        }
+    except Exception as exc:
+        log_message(f"Failed to fetch official NAV for fund {code}: {exc}")
+        return None
+
+
+def get_sina_proxy_change(symbol):
+    url = f"https://hq.sinajs.cn/list={symbol}"
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Referer": "https://finance.sina.com.cn",
+    }
+    try:
+        response = request_get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        response.encoding = "gbk"
+        match = re.search(r'="(.*)"', response.text)
+        if not match or not match.group(1):
+            return None
+
+        parts = match.group(1).split(",")
+        if symbol.startswith("gb_"):
+            if len(parts) < 4:
+                return None
+            return {
+                "change_percent": float(parts[2]),
+                "time": parts[3],
+            }
+
+        if len(parts) < 32:
+            return None
+        previous_close = float(parts[2])
+        current_price = float(parts[3])
+        if not previous_close:
+            return None
+        return {
+            "change_percent": (current_price - previous_close) / previous_close * 100,
+            "time": f"{parts[30]} {parts[31]}",
+        }
+    except Exception as exc:
+        log_message(f"Failed to fetch proxy quote {symbol}: {exc}")
+        return None
+
+
+def get_proxy_fund_estimate(code):
+    config = PROXY_ESTIMATE_CONFIG[code]
+    official_nav = get_latest_official_nav(code)
+    proxy_quote = get_sina_proxy_change(config["symbol"])
+    if not official_nav or not proxy_quote:
+        log_message(f"Failed to build proxy estimate for fund {code}.")
+        return None
+
+    change_percent = proxy_quote["change_percent"]
+    estimated_nav = official_nav["nav"] * (1 + change_percent / 100)
+    estimate_note = (
+        f"代理估值：按{config['label']} {change_percent:+.2f}% 测算，"
+        f"基准为 {official_nav['date']} 官方净值"
+    )
+    log_message(f"Fund {code} uses proxy estimate based on {config['label']}.")
+    return {
+        "fundcode": code,
+        "name": config["name"],
+        "jzrq": official_nav["date"],
+        "dwjz": f"{official_nav['nav']:.4f}",
+        "gsz": f"{estimated_nav:.4f}",
+        "gszzl": f"{change_percent:.2f}",
+        "gztime": proxy_quote["time"],
+        "estimate_note": estimate_note,
+    }
 
 
 def get_exchange_etf_data(code):
@@ -163,6 +307,7 @@ def get_exchange_etf_data(code):
     try:
         response = request_get(url, headers=headers, timeout=10)
         response.raise_for_status()
+        response.encoding = "gbk"
         match = re.search(r'="(.*)"', response.text)
         if not match:
             return None
@@ -266,6 +411,8 @@ def generate_fund_report(data_list, title):
         lines.append(f"【{data['name']} ({data['fundcode']})】")
         lines.append(f"当前估值: {data['gsz']} (涨跌幅: {data['gszzl']}%)")
         lines.append(f"更新时间: {data['gztime']}")
+        if data.get("estimate_note"):
+            lines.append(data["estimate_note"])
         lines.append("-" * 40)
     return "\n".join(lines)
 
