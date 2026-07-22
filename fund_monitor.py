@@ -45,6 +45,7 @@ ALL_FUND_CODES = [
 GROUP_A_CODES = ["012553", "020274", "014415", "016185"]
 GROUP_B_CODES = [code for code in ALL_FUND_CODES if code not in GROUP_A_CODES or code == "016185"]
 EXCHANGE_ETF_CODES = {"513650", "513870"}
+MAX_ESTIMATE_AGE_DAYS = 7
 PROXY_ESTIMATE_CONFIG = {
     "016452": {
         "name": "南方纳斯达克100指数发起(QDII)A",
@@ -185,6 +186,15 @@ def get_sina_fund_estimate(code):
         parts = match.group(1).split(",")
         if len(parts) < 10 or not parts[8] or not parts[9]:
             log_message(f"Malformed Sina estimate for fund {code}.")
+            return None
+
+        estimate_date = datetime.strptime(parts[7], "%Y-%m-%d").date()
+        estimate_age_days = (now_local().date() - estimate_date).days
+        if estimate_age_days < 0 or estimate_age_days > MAX_ESTIMATE_AGE_DAYS:
+            log_message(
+                f"Stale Sina estimate for fund {code}: {parts[7]} "
+                f"({estimate_age_days} days old)."
+            )
             return None
 
         float(parts[8])
