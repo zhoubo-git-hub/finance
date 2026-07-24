@@ -18,6 +18,9 @@ jobs:
       FAILURE_NOTIFY_EMAIL: 3217542796@qq.com
       SMTP_SERVER: smtp.qq.com
       SMTP_PORT: "465"
+      SMTP_FALLBACK_PORT: "587"
+      SMTP_TIMEOUT: "15"
+      SMTP_RETRY_COUNT: "2"
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -47,15 +50,9 @@ jobs:
         shell: python
         run: |
           import os
-          import smtplib
-          from email.header import Header
-          from email.mime.text import MIMEText
+          from fund_monitor import send_email
 
-          sender = os.environ["SENDER_EMAIL"]
-          password = os.environ["SENDER_PASS"]
           receiver = os.environ["FAILURE_NOTIFY_EMAIL"]
-          server_host = os.environ["SMTP_SERVER"]
-          server_port = int(os.environ["SMTP_PORT"])
           run_id = os.environ["GITHUB_RUN_ID"]
           repo = os.environ["GITHUB_REPOSITORY"]
           job_url = f"https://github.com/{repo}/actions/runs/{run_id}"
@@ -74,12 +71,5 @@ jobs:
               f"{log_tail}"
           )
 
-          msg = MIMEText(body, "plain", "utf-8")
-          msg["From"] = f"{Header('基金助手', 'utf-8').encode()} <{sender}>"
-          msg["To"] = f"{Header('通知接收人', 'utf-8').encode()} <{receiver}>"
-          msg["Subject"] = Header("Fund Monitor GitHub Actions Failure", "utf-8")
-
-          server = smtplib.SMTP_SSL(server_host, server_port)
-          server.login(sender, password)
-          server.sendmail(sender, [receiver], msg.as_string())
-          server.quit()
+          if not send_email(body, receiver, "GitHub Actions Failure"):
+              raise SystemExit("Failure notification email could not be sent.")

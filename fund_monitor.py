@@ -2,6 +2,7 @@ import os
 import re
 import smtplib
 import sys
+import time
 from datetime import datetime
 from email.header import Header
 from email.mime.text import MIMEText
@@ -21,6 +22,10 @@ except Exception:
 APP_TIMEZONE = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Shanghai"))
 SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.qq.com")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
+SMTP_FALLBACK_PORT = int(os.environ.get("SMTP_FALLBACK_PORT", "587"))
+SMTP_TIMEOUT = int(os.environ.get("SMTP_TIMEOUT", "15"))
+SMTP_RETRY_COUNT = int(os.environ.get("SMTP_RETRY_COUNT", "2"))
+SMTP_RETRY_DELAY = int(os.environ.get("SMTP_RETRY_DELAY", "3"))
 
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "")
 SENDER_PASS = os.environ.get("SENDER_PASS", "")
@@ -453,15 +458,52 @@ def send_email(content, receiver_email, subject_suffix):
         "utf-8",
     )
 
-    try:
-        server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
-        server.login(SENDER_EMAIL, SENDER_PASS)
-        server.sendmail(SENDER_EMAIL, [receiver_email], msg.as_string())
-        server.quit()
-        return True
-    except Exception as exc:
-        log_message(f"Failed to send email: {exc}")
-        return False
+    transports = [
+        ("SSL", SMTP_PORT),
+        ("STARTTLS", SMTP_FALLBACK_PORT),
+    ]
+    for attempt in range(1, SMTP_RETRY_COUNT + 1):
+        for mode, port in transports:
+            try:
+                if mode == "SSL":
+                    server = smtplib.SMTP_SSL(
+                        SMTP_SERVER,
+                        port,
+                        timeout=SMTP_TIMEOUT,
+                    )
+                else:
+                    server = smtplib.SMTP(
+                        SMTP_SERVER,
+                        port,
+                        timeout=SMTP_TIMEOUT,
+                    )
+                    server.ehlo()
+                    server.starttls()
+                    server.ehlo()
+
+                try:
+                    server.login(SENDER_EMAIL, SENDER_PASS)
+                    server.sendmail(SENDER_EMAIL, [receiver_email], msg.as_string())
+                    log_message(
+                        f"Email transport succeeded via {mode} port {port} "
+                        f"on attempt {attempt}."
+                    )
+                    return True
+                finally:
+                    try:
+                        server.quit()
+                    except Exception:
+                        server.close()
+            except Exception as exc:
+                log_message(
+                    f"Email transport failed via {mode} port {port} "
+                    f"on attempt {attempt}: {exc}"
+                )
+
+        if attempt < SMTP_RETRY_COUNT:
+            time.sleep(SMTP_RETRY_DELAY)
+
+    return False
 
 
 def fetch_funds(codes):
@@ -485,12 +527,15 @@ def run_once():
     group_b_results = fetch_funds(GROUP_B_CODES)
     nasdaq_data = get_nasdaq_data()
 
+    send_failed = False
+
     if group_a_results:
         report_a = generate_fund_report(group_a_results, "基金实时监控报告（A 组）")
         if send_email(report_a, RECEIVER_GROUP_A, "A 组"):
             log_message("A group email sent.")
         else:
             log_message("A group email failed.")
+            send_failed = True
     else:
         log_message("A group fund data is empty.")
 
@@ -501,8 +546,12 @@ def run_once():
             log_message("B group email sent.")
         else:
             log_message("B group email failed.")
+            send_failed = True
     else:
         log_message("B group fund data and Nasdaq data are empty.")
+
+    if send_failed:
+        fail("One or more group emails failed.")
 
 
 if __name__ == "__main__":
