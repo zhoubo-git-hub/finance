@@ -26,6 +26,8 @@ SMTP_FALLBACK_PORT = int(os.environ.get("SMTP_FALLBACK_PORT", "587"))
 SMTP_TIMEOUT = int(os.environ.get("SMTP_TIMEOUT", "15"))
 SMTP_RETRY_COUNT = int(os.environ.get("SMTP_RETRY_COUNT", "2"))
 SMTP_RETRY_DELAY = int(os.environ.get("SMTP_RETRY_DELAY", "3"))
+HTTP_RETRY_COUNT = int(os.environ.get("HTTP_RETRY_COUNT", "2"))
+HTTP_RETRY_DELAY = int(os.environ.get("HTTP_RETRY_DELAY", "1"))
 
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "")
 SENDER_PASS = os.environ.get("SENDER_PASS", "")
@@ -52,20 +54,29 @@ GROUP_B_CODES = [code for code in ALL_FUND_CODES if code not in GROUP_A_CODES or
 EXCHANGE_ETF_CODES = {"513650", "513870"}
 MAX_ESTIMATE_AGE_DAYS = 7
 PROXY_ESTIMATE_CONFIG = {
+    "020274": {
+        "name": "富国中证细分化工产业主题ETF发起式联接C",
+        "symbol": "sh516120",
+        "label": "化工ETF富国",
+        "source": "tencent",
+    },
     "016452": {
         "name": "南方纳斯达克100指数发起(QDII)A",
         "symbol": "gb_ndx",
         "label": "纳斯达克100指数",
+        "source": "sina",
     },
     "163813": {
         "name": "中银全球策略(QDII-FOF)A",
         "symbol": "gb_ixic",
         "label": "纳斯达克综合指数",
+        "source": "sina",
     },
     "003547": {
         "name": "鹏华丰禄债券",
         "symbol": "sh000012",
         "label": "上证国债指数",
+        "source": "sina",
     },
 }
 
@@ -131,13 +142,19 @@ def validate_config():
 
 
 def request_get(url, headers=None, params=None, timeout=10):
-    return requests.get(
-        url,
-        headers=headers,
-        params=params,
-        timeout=timeout,
-        proxies=PROXIES if (PROXIES.get("http") or PROXIES.get("https")) else None,
-    )
+    for attempt in range(1, HTTP_RETRY_COUNT + 1):
+        try:
+            return requests.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=timeout,
+                proxies=PROXIES if (PROXIES.get("http") or PROXIES.get("https")) else None,
+            )
+        except requests.RequestException:
+            if attempt == HTTP_RETRY_COUNT:
+                raise
+            time.sleep(HTTP_RETRY_DELAY)
 
 
 def is_trading_day(check_date):
@@ -286,10 +303,42 @@ def get_sina_proxy_change(symbol):
         return None
 
 
+def get_tencent_proxy_change(symbol):
+    url = f"https://qt.gtimg.cn/q={symbol}"
+    headers = {"User-Agent": USER_AGENT}
+    try:
+        response = request_get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        response.encoding = "gbk"
+        match = re.search(r'="(.*)"', response.text)
+        if not match or not match.group(1):
+            return None
+
+        parts = match.group(1).split("~")
+        if len(parts) < 33:
+            return None
+        previous_close = float(parts[4])
+        current_price = float(parts[3])
+        if not previous_close:
+            return None
+
+        quote_time = datetime.strptime(parts[30], "%Y%m%d%H%M%S")
+        return {
+            "change_percent": (current_price - previous_close) / previous_close * 100,
+            "time": quote_time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    except Exception as exc:
+        log_message(f"Failed to fetch Tencent proxy quote {symbol}: {exc}")
+        return None
+
+
 def get_proxy_fund_estimate(code):
     config = PROXY_ESTIMATE_CONFIG[code]
     official_nav = get_latest_official_nav(code)
-    proxy_quote = get_sina_proxy_change(config["symbol"])
+    if config.get("source") == "tencent":
+        proxy_quote = get_tencent_proxy_change(config["symbol"])
+    else:
+        proxy_quote = get_sina_proxy_change(config["symbol"])
     if not official_nav or not proxy_quote:
         log_message(f"Failed to build proxy estimate for fund {code}.")
         return None
