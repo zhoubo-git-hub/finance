@@ -54,6 +54,18 @@ GROUP_B_CODES = [code for code in ALL_FUND_CODES if code not in GROUP_A_CODES or
 EXCHANGE_ETF_CODES = {"513650", "513870"}
 MAX_ESTIMATE_AGE_DAYS = 7
 PROXY_ESTIMATE_CONFIG = {
+    "014415": {
+        "name": "招商中证畜牧养殖ETF联接C",
+        "symbol": "sh516670",
+        "label": "招商中证畜牧养殖ETF",
+        "source": "tencent",
+    },
+    "016185": {
+        "name": "广发中证全指电力ETF发起式联接A",
+        "symbol": "sz159611",
+        "label": "广发中证全指电力ETF",
+        "source": "tencent",
+    },
     "020274": {
         "name": "富国中证细分化工产业主题ETF发起式联接C",
         "symbol": "sh516120",
@@ -219,8 +231,15 @@ def get_sina_fund_estimate(code):
             )
             return None
 
-        float(parts[8])
-        float(parts[9])
+        official_nav = float(parts[3])
+        estimated_nav = float(parts[8])
+        change_percent = float(parts[9])
+        if change_percent == 0 and estimated_nav == official_nav:
+            log_message(
+                f"Unverified zero Sina estimate for fund {code}; "
+                "checking an independent quote."
+            )
+            return None
         return {
             "fundcode": code,
             "name": parts[0],
@@ -342,6 +361,12 @@ def get_proxy_fund_estimate(code):
     if not official_nav or not proxy_quote:
         log_message(f"Failed to build proxy estimate for fund {code}.")
         return None
+
+    if config.get("source") == "tencent":
+        quote_date = datetime.strptime(proxy_quote["time"][:10], "%Y-%m-%d").date()
+        if quote_date != now_local().date():
+            log_message(f"Stale Tencent proxy quote for fund {code}: {quote_date}.")
+            return None
 
     change_percent = proxy_quote["change_percent"]
     estimated_nav = official_nav["nav"] * (1 + change_percent / 100)
