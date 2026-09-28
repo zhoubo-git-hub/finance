@@ -1,4 +1,5 @@
 import unittest
+import smtplib
 from datetime import datetime
 from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
@@ -91,6 +92,29 @@ class FundEstimateTests(unittest.TestCase):
             patch.object(monitor, "log_message"),
         ):
             self.assertIsNone(monitor.get_proxy_fund_estimate("014415"))
+
+
+class EmailDeliveryTests(unittest.TestCase):
+    def test_smtp_failure_logs_the_connection_stage(self):
+        with (
+            patch.object(monitor, "SENDER_EMAIL", "sender@example.com"),
+            patch.object(monitor, "SENDER_PASS", "test-password"),
+            patch.object(monitor, "SMTP_RETRY_COUNT", 1),
+            patch.object(monitor.smtplib, "SMTP_SSL") as smtp_ssl,
+            patch.object(monitor.smtplib, "SMTP") as smtp,
+            patch.object(monitor, "log_message") as log,
+        ):
+            smtp_ssl.return_value.ehlo.side_effect = smtplib.SMTPServerDisconnected(
+                "Connection unexpectedly closed"
+            )
+            smtp.return_value.ehlo.side_effect = smtplib.SMTPServerDisconnected(
+                "Connection unexpectedly closed"
+            )
+            self.assertFalse(monitor.send_email("test", "receiver@example.com", "test"))
+
+        messages = [call.args[0] for call in log.call_args_list]
+        self.assertEqual(len(messages), 2)
+        self.assertTrue(all("during EHLO: SMTPServerDisconnected" in item for item in messages))
 
 
 if __name__ == "__main__":

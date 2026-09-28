@@ -53,6 +53,9 @@ jobs:
         shell: python
         run: |
           import os
+          import sys
+
+          sys.path.insert(0, os.environ["GITHUB_WORKSPACE"])
           from fund_monitor import send_email
 
           receiver = os.environ["FAILURE_NOTIFY_EMAIL"]

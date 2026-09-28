@@ -538,6 +538,8 @@ def send_email(content, receiver_email, subject_suffix):
     ]
     for attempt in range(1, SMTP_RETRY_COUNT + 1):
         for mode, port in transports:
+            server = None
+            stage = "connect"
             try:
                 if mode == "SSL":
                     server = smtplib.SMTP_SSL(
@@ -545,34 +547,42 @@ def send_email(content, receiver_email, subject_suffix):
                         port,
                         timeout=SMTP_TIMEOUT,
                     )
+                    stage = "EHLO"
+                    server.ehlo()
                 else:
                     server = smtplib.SMTP(
                         SMTP_SERVER,
                         port,
                         timeout=SMTP_TIMEOUT,
                     )
+                    stage = "EHLO"
                     server.ehlo()
+                    stage = "STARTTLS"
                     server.starttls()
+                    stage = "EHLO after STARTTLS"
                     server.ehlo()
 
-                try:
-                    server.login(SENDER_EMAIL, SENDER_PASS)
-                    server.sendmail(SENDER_EMAIL, [receiver_email], msg.as_string())
-                    log_message(
-                        f"Email transport succeeded via {mode} port {port} "
-                        f"on attempt {attempt}."
-                    )
-                    return True
-                finally:
+                stage = "login"
+                server.login(SENDER_EMAIL, SENDER_PASS)
+                stage = "sendmail"
+                server.sendmail(SENDER_EMAIL, [receiver_email], msg.as_string())
+                log_message(
+                    f"Email transport succeeded via {mode} port {port} "
+                    f"on attempt {attempt}."
+                )
+                return True
+            except Exception as exc:
+                log_message(
+                    f"Email transport failed via {mode} port {port} "
+                    f"on attempt {attempt} during {stage}: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+            finally:
+                if server is not None:
                     try:
                         server.quit()
                     except Exception:
                         server.close()
-            except Exception as exc:
-                log_message(
-                    f"Email transport failed via {mode} port {port} "
-                    f"on attempt {attempt}: {exc}"
-                )
 
         if attempt < SMTP_RETRY_COUNT:
             time.sleep(SMTP_RETRY_DELAY)
