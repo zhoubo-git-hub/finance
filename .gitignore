@@ -1,4 +1,5 @@
 __pycache__/
 *.pyc
 fund_monitor.log
+fund_trigger.log*
 .idea/

@@ -34,8 +34,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Test estimate fallbacks
-        run: python -m unittest -v test_fund_monitor
+      - name: Test monitor and trigger
+        run: python -m unittest -v test_fund_monitor test_trigger_fund_monitor
 
       - name: Run fund monitor
         run: python fund_monitor.py

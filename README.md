@@ -21,6 +21,8 @@
 | `fund_monitor.py` | 行情获取、报告生成和邮件发送主程序 |
 | `requirements.txt` | Python 依赖 |
 | `.github/workflows/fund-monitor.yml` | GitHub Actions 手动运行工作流 |
+| `trigger_fund_monitor.py` | Windows 定时触发入口，含重试、日志和重复运行检查 |
+| `install_fund_trigger.ps1` | 备份并更新现有 FundMonitorDaily 任务入口 |
 | `.env.example` | 环境变量参考模板；脚本不会自动读取该文件 |
 
 ## 环境要求
@@ -83,7 +85,9 @@ python fund_monitor.py
 - `SENDER_EMAIL`
 - `SENDER_PASS`
 
-如需自动定时运行，可在工作流中增加 `schedule`。GitHub Actions 的 cron 使用 UTC，请换算到目标时区。
+当前自动入口为 Windows 的 `FundMonitorDaily`，在工作日北京时间 14:52
+调用 `trigger_fund_monitor.py`。部署与日志路径见 [配置说明](GITHUB_ACTIONS_SETUP.md)。
+自动入口会先检查当天下午是否已有运行，失败后最多重试三次；不要同时添加第二个定时触发器。
 
 ## 数据源与容错
 
